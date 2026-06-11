@@ -129,3 +129,58 @@ def trigger_dataform_workflow() -> dict:
     resp_raise_for_status()
     invocation = resp.json()
     return invocation
+
+@functions_framework.http
+def validate_and_run_dataform(request):
+    """
+    HTTP Cloud Function entry point.
+    Cloud Scheduler POSTs to this endpoint on the cron schedule
+    """
+    logger.info("=== Starting Google Sheet validation ===")
+    service = get_sheets_service()
+    results = [validate_sheet(service, cfg) for cfg in SHEETS_TO_VALIDATE]
+    
+    failures = [r for r in results if not r["ok"]]
+
+    if failures:
+        error_details = [{"sheet": f["name"], "error": f["error"]} for f in failures]
+        logger.error(f"Validation failed: {json.dumps(error_details, indent=2)}")
+        # return HTTP 200 so Cloud Scheduler doesn't keep retrying
+        # return HTTP 500 if want Cloud Scheduler to retry on validation failure.  Not good idea
+        return (
+            json.dumps(
+                {
+                    "status": "vaalidation_failed",
+                    "message": "One or more sheets failed validation.  Dataform was NOT triggered",
+                    "failures": error_details,
+                }), (
+                    200,
+                    {"Content-Type": "application/json"},
+                )
+            )
+    logger.info("=== All sheets valid - triggering Dataform ===")
+
+    try:
+        invocation = trigger_dataform_workflow()
+        return (
+            json.dumps( {
+                "status": "success",
+                "message": "All sheets validated.  Dataform workflow invocation created.",
+                "invocation_name": invocation.get("name"),
+                "validation_summary": [
+                    {"sheet": r["name"], "rows": r.get("row_count")} for r in results
+                ],
+            }),
+            200,
+            {"Content-Type": "application/json"},
+        )
+    except Exception as e:
+        logger.exception("Failed to trigger Dataform")
+        return (
+            json.dumps(
+                {"status": "dataform_trigger_failed", 
+                 "error": str(e)},
+                 500,
+                 {"Content-Type": "application/json"},
+            )
+        )
