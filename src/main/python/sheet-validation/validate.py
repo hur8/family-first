@@ -1,4 +1,15 @@
 
+import json
+import logging
+import os
+import sys
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+#--
+# Configuration
+#--
 SHEETS_TO_VALIDATE = [
     {
         "name": "wilkins_ooh",
@@ -78,3 +89,43 @@ def validate_sheet(service, sheet_config: dict) -> dict:
     except Exception as e:
          return {"name": name, "ok": False, "error": str(e)}
 
+def trigger_dataform_workflow() -> dict:
+    """
+    Creates a Dataform compilation result then starts a workflow invocation.
+    Returns the invocatino resource dict on success
+    Raises on failure
+    """
+    token = get_access_token()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+    # 1. Create a compilation result: compile SQLX from the workspace
+    compile_url = f"{DATAFORM_BASE_URL}:computeRepositoryAccessTokenStatus"
+    compile_url_2 = f"{DATAFORM_BASE_URL}/compilationResults"
+    compile_body = {
+        "workspace": (
+            f"projects/{GCP_PROJECT}/locations/{DATAFORM_REGION}"
+            f"/repositories/{DATAFORM_REPO}/workspaces/{DATAFORM_WORKSPACE}"
+        )
+    }
+
+    logger.info("Creating Dataformcompilation result...")
+    resp = http_requests.post(compile_url, headers=headers, json=compile_body)
+    resp.raise_for_status()
+
+    compilation = resp.json()
+    compilation_result_name = compilation["name"]
+    logger.info(f"Compilation result: {compilation_result_name}")
+
+    #2. Create a workflow invocation against the compilation result
+    invoke_url = f"{DATAFORM_BASE_URL}/workflowInvocations"
+    invoke_body = {
+        "compilationResult": compilation_result_name,
+    }
+
+    resp = http_requests.post(invoke_url, headers=headers, json=invoke_body)
+    resp_raise_for_status()
+    invocation = resp.json()
+    return invocation
