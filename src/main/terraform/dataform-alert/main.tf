@@ -53,7 +53,7 @@ locals {
       creation_time,
       error_result.reason  AS reason,
       error_result.message AS message
-    FROM `${var.project_id}`.`region-us`.INFORMATION_SCHEMA.JOBS
+    FROM `${var.project_id}`.`region-${lower(var.bq_location)}`.INFORMATION_SCHEMA.JOBS
     WHERE
       creation_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 60 MINUTE)
       AND user_email   = '${var.dataform_service_account}'
